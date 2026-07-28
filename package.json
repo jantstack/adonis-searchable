@@ -9,7 +9,34 @@
     "type": "git",
     "url": "git+https://github.com/JATN1506/adonis-searchable.git"
   },
-  "keywords": ["adonisjs", "lucid", "pagination", "filters", "search", "service-layer"],
+  "keywords": [
+    "adonisjs",
+    "adonis",
+    "adonisjs-7",
+    "adonis-7",
+    "adonisjs-package",
+    "lucid",
+    "lucid-orm",
+    "adonis-lucid",
+    "orm",
+    "service-layer",
+    "repository",
+    "crud",
+    "query-builder",
+    "pagination",
+    "paginate",
+    "filters",
+    "filtering",
+    "search",
+    "fulltext-search",
+    "typescript",
+    "esm",
+    "postgresql",
+    "mysql",
+    "sqlite",
+    "rest-api",
+    "backend"
+  ],
   "engines": {
     "node": ">=20.6.0"
   },
@@ -21,7 +48,10 @@
       "default": "./build/index.js"
     }
   },
-  "files": ["build", "README.md"],
+  "files": [
+    "build",
+    "README.md"
+  ],
   "scripts": {
     "build": "rm -rf build && tsc",
     "typecheck": "tsc --noEmit",
@@ -40,5 +70,13 @@
     "@types/node": "^22.19.1",
     "@types/qs": "^6.14.1",
     "typescript": "~5.9.3"
-  }
+  },
+  "homepage": "https://github.com/JATN1506/adonis-searchable#readme",
+  "bugs": {
+    "url": "https://github.com/JATN1506/adonis-searchable/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "sideEffects": false
 }
