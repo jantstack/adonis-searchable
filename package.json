@@ -1,0 +1,44 @@
+{
+  "name": "@jantstack/adonis-searchable",
+  "version": "1.0.0",
+  "description": "Generic service layer for AdonisJS + Lucid: paginated listing, fulltext search, declarative filters with a safe-by-default whitelist, period filters and preloads — without HttpContext.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Jose Tenorio",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JATN1506/adonis-searchable.git"
+  },
+  "keywords": ["adonisjs", "lucid", "pagination", "filters", "search", "service-layer"],
+  "engines": {
+    "node": ">=20.6.0"
+  },
+  "main": "./build/index.js",
+  "types": "./build/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./build/index.d.ts",
+      "default": "./build/index.js"
+    }
+  },
+  "files": ["build", "README.md"],
+  "scripts": {
+    "build": "rm -rf build && tsc",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "peerDependencies": {
+    "@adonisjs/core": "^7.0.0",
+    "@adonisjs/lucid": "^22.0.0"
+  },
+  "dependencies": {
+    "qs": "^6.15.2"
+  },
+  "devDependencies": {
+    "@adonisjs/core": "^7.3.1",
+    "@adonisjs/lucid": "^22.4.2",
+    "@types/node": "^22.19.1",
+    "@types/qs": "^6.14.1",
+    "typescript": "~5.9.3"
+  }
+}
