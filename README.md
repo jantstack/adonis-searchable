@@ -17,11 +17,13 @@ export default class ProductsService extends BaseService<typeof Product> {
 ```
 
 ```ts
+import { parseQueryParams } from '@jantstack/adonis-searchable'
+
 export default class ProductsController {
   constructor(private service = new ProductsService()) {}
 
   async index({ request }: HttpContext) {
-    return this.service.index(request.qs())
+    return this.service.index(parseQueryParams(request))
   }
 }
 ```
@@ -73,24 +75,28 @@ Every knob is a protected property on the subclass:
 | `periodColumns` | `['created_at', 'updated_at']` | Columns allowed in date-range filters. |
 | `indexWith` | `[]` | Relations preloaded by default in `index()`. |
 | `showWith` | `[]` | Relations preloaded by default in `findOne()`. |
-| `defaultPerPage` | `20` | Page size when the client doesn't send one. |
+| `defaultPerPage` | `25` | Page size when the client doesn't send one. |
 | `maxPerPage` | `100` | Ceiling for `perPage` — protects against `?perPage=100000`. |
 
 ---
 
 ## `index()` and the query string
 
-`index(params)` accepts a `QueryParams` object. When it comes straight from `request.qs()`, these are the shapes:
+`index(params)` accepts a `QueryParams` object. `parseQueryParams(request)` builds it from the HTTP request — it is the only piece of the package that knows about `HttpContext`, so services stay transport-agnostic (write another adapter for GraphQL or gRPC and nothing else changes). It reads the query string on `GET` and merges the body on `POST`/`PUT`, supporting these conventions:
 
 ```
-?page=2&perPage=50
+?page=2&per_page=50
 &search=acme&search_columns[]=name&search_columns[]=sku
 &filters[where][0][field]=status&filters[where][0][op]==&filters[where][0][value]=active
 &period_filters[0][column]=created_at&period_filters[0][start]=2026-01-01&period_filters[0][end]=2026-03-31
 &order_by=created_at&order_direction=desc
-&includes[]=category&includes[]=category.parent
+&with=category,category.parent
+&scopes[withStatus]=delivered
 &count=true
+&paginate=false&limit=500
 ```
+
+Query-string key → `QueryParams` property: `per_page` → `perPage`, `search_columns[]` → `searchColumns`, `order_by`/`order_direction` → `orderBy`/`orderDirection`, `with` (CSV or array) → `includes`, `period_filters` → `period`. `search_input` is accepted as a legacy alias of `search`.
 
 | Param | Type | Notes |
 |---|---|---|
@@ -225,7 +231,7 @@ export default class OrdersService extends BaseService<typeof Order> {
 
 Available hooks: `beforeCreate`, `afterCreate`, `beforeUpdate`, `afterUpdate`, `beforeDestroy`, `afterDestroy`. All optional, all awaited, all receiving the transaction when one is passed.
 
-`findOne(uuid, includes?)` and `update`/`destroy` throw `RecordNotFoundError` when the row doesn't exist. It carries `status = 404`, so a standard AdonisJS exception handler maps it without extra wiring.
+`findOne(uuid, includes?)` returns `null` when the row doesn't exist; `findOneOrFail`, `update` and `destroy` throw `RecordNotFoundError` instead. It carries `status = 404`, so a standard AdonisJS exception handler maps it without extra wiring.
 
 ---
 
@@ -250,10 +256,14 @@ This is *your* code, not client input, so the field whitelist doesn't apply here
 ## API reference
 
 ```ts
+// Functions
+function parseQueryParams(request: HttpContext['request']): QueryParams
+
 // Classes
 class SearchableService<TModel> {
   index(params?: QueryParams): Promise<PaginatedResult<TModel> | { count: number } | { data: [] }>
   findOne(uuid: string, includes?: string[]): Promise<InstanceType<TModel> | null>
+  findOneOrFail(uuid: string, includes?: string[]): Promise<InstanceType<TModel>>
   protected buildQuery(params: QueryParams): Promise<{ query: ModelQueryBuilder }>
   protected applyCustomFilters?(query, params): void | Promise<void>
 }
