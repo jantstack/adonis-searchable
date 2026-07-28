@@ -1,13 +1,13 @@
 {
   "name": "@jantstack/adonis-searchable",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Generic service layer for AdonisJS + Lucid: paginated listing, fulltext search, declarative filters with a safe-by-default whitelist, period filters and preloads — without HttpContext.",
   "type": "module",
   "license": "MIT",
   "author": "Jose Tenorio",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JATN1506/adonis-searchable.git"
+    "url": "git+https://github.com/JantStack/adonis-searchable.git"
   },
   "keywords": [
     "adonisjs",
@@ -71,9 +71,9 @@
     "@types/qs": "^6.14.1",
     "typescript": "~5.9.3"
   },
-  "homepage": "https://github.com/JATN1506/adonis-searchable#readme",
+  "homepage": "https://github.com/JantStack/adonis-searchable#readme",
   "bugs": {
-    "url": "https://github.com/JATN1506/adonis-searchable/issues"
+    "url": "https://github.com/JantStack/adonis-searchable/issues"
   },
   "publishConfig": {
     "access": "public"

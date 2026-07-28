@@ -311,7 +311,7 @@ type AllowedFilters, QueryParams, PaginatedResult, PaginationMeta,
 
 ## Scope and maintenance
 
-Extracted from the [adonis7-base](https://github.com/JATN1506/adonis7-base) chassis, where it runs in production-shaped projects. It is maintained according to that chassis's needs: bug fixes and small additions are welcome, larger feature requests may not fit the roadmap.
+Extracted from the [adonis7-base](https://github.com/JantStack/adonis7-base) chassis, where it runs in production-shaped projects. It is maintained according to that chassis's needs: bug fixes and small additions are welcome, larger feature requests may not fit the roadmap.
 
 ## License
 

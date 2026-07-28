@@ -4,9 +4,17 @@ All notable changes to this package are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.0.1] — 2026-07-28
+
+### Changed
+
+- Repository, homepage and issue URLs updated to the `JantStack` GitHub
+  account (the previous handle no longer applies). Metadata only — no code
+  changes.
+
 ## [1.0.0] — 2026-07-28
 
-First release, extracted from the [adonis7-base](https://github.com/JATN1506/adonis7-base)
+First release, extracted from the [adonis7-base](https://github.com/JantStack/adonis7-base)
 chassis where the module had been developed and hardened.
 
 ### Added
