@@ -1,6 +1,6 @@
 {
   "name": "@jantstack/adonis-searchable",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "Generic service layer for AdonisJS + Lucid: paginated listing, fulltext search, declarative filters with a safe-by-default whitelist, period filters and preloads — without HttpContext.",
   "type": "module",
   "license": "MIT",
@@ -53,9 +53,11 @@
     "README.md"
   ],
   "scripts": {
-    "build": "rm -rf build && tsc",
-    "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build"
+    "build": "npm run typecheck && rm -rf build && tsc",
+    "typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "prepublishOnly": "npm run build",
+    "test": "node --import @poppinss/ts-exec bin/test.ts",
+    "typecheck:build": "tsc --noEmit"
   },
   "peerDependencies": {
     "@adonisjs/core": "^7.0.0",
@@ -67,8 +69,14 @@
   "devDependencies": {
     "@adonisjs/core": "^7.3.1",
     "@adonisjs/lucid": "^22.4.2",
+    "@japa/assert": "^4.2.0",
+    "@japa/runner": "^5.3.0",
+    "@poppinss/ts-exec": "^1.4.4",
+    "@types/luxon": "^3.7.2",
     "@types/node": "^22.19.1",
     "@types/qs": "^6.14.1",
+    "better-sqlite3": "^13.0.1",
+    "luxon": "^3.7.2",
     "typescript": "~5.9.3"
   },
   "homepage": "https://github.com/JantStack/adonis-searchable#readme",

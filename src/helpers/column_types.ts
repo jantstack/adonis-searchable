@@ -61,6 +61,9 @@ export async function getColumnType(
       .from('information_schema.columns')
       .select('data_type')
       .where('table_name', table)
+      // Sin acotar el esquema, una base multi-schema con tablas homónimas
+      // devuelve columnas de otra tabla mezcladas con las de esta.
+      .andWhereRaw('table_schema = current_schema()')
       .andWhere('column_name', column)
       .first()
     return (result?.data_type ?? null)?.toLowerCase() ?? null
@@ -125,6 +128,9 @@ export async function getColumns(model: any): Promise<string[]> {
       .from('information_schema.columns')
       .select('column_name')
       .where('table_name', table)
+      // Ver getColumnType: acotar el esquema evita mezclar columnas de tablas
+      // homónimas de otro schema — que además ensancharía la whitelist de sort.
+      .andWhereRaw('table_schema = current_schema()')
     return rows.map((r: any) => r.column_name)
   }
   if (driver === 'mysql') {

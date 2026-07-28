@@ -16,10 +16,26 @@ import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 
 import type { QueryParams, PaginatedResult, PaginationMeta } from './types.js'
 import { applyFilters, ALLOW_ALL_FILTERS, FILTERABLE_FROM_MODEL } from './helpers/apply_filters.js'
-import type { AllowedFilters, ResolvedFilters } from './helpers/apply_filters.js'
+import type { AllowedFilters, ResolvedFilters, FilterLimits } from './helpers/apply_filters.js'
 import { applyFulltextSearch } from './helpers/apply_search.js'
-import { applyPreloads } from './helpers/apply_preloads.js'
+import {
+  applyPreloads,
+  filterIncludes,
+  ALLOW_ALL_INCLUDES,
+  INCLUDES_FROM_SERVICE,
+} from './helpers/apply_preloads.js'
+import type { AllowedIncludes, ResolvedIncludes } from './helpers/apply_preloads.js'
 import { getColumns, getSerializableColumns } from './helpers/column_types.js'
+
+/**
+ * Normaliza un entero recibido del exterior. `Number('abc')` es NaN y, sin
+ * esto, NaN llega hasta `paginate()` y revienta como error de SQL — un 500
+ * donde debería haber un listado normal.
+ */
+function toPositiveInt(value: number | undefined, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) return fallback
+  return Math.floor(value)
+}
 
 export abstract class SearchableService<TModel extends typeof BaseModel> {
   /** Modelo Lucid sobre el que opera el service. Subclases lo declaran. */
@@ -55,11 +71,36 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
   /** Relaciones a precargar por defecto en findOne(). */
   protected showWith: string[] = []
 
+  /**
+   * Relaciones que el CLIENTE puede pedir (`?with=`). Los preloads por
+   * defecto del service (`indexWith`/`showWith`) se aplican siempre; esto
+   * solo gobierna lo que llega de fuera. Tres modos:
+   *
+   *  - **default** (`INCLUDES_FROM_SERVICE`): el cliente puede pedir lo que el
+   *    service ya declara precargar. La intención del autor está donde ya la
+   *    escribía, así que el caso normal no cuesta ni una línea.
+   *  - **whitelist explícita** (`['owner', 'owner.profile']`): para exponer
+   *    más de lo que se precarga por defecto.
+   *  - **`ALLOW_ALL_INCLUDES`**: cualquier relación del modelo — el
+   *    comportamiento implícito hasta 1.1.0. Solo para servicios internos:
+   *    una relación no prevista viaja entera en la respuesta.
+   */
+  protected allowedIncludes: AllowedIncludes = INCLUDES_FROM_SERVICE
+
   /** Scopes Lucid permitidos: claves que pueden venir en `params.scopes`. */
   protected allowedScopes: string[] = []
 
   protected defaultPerPage: number = 25
   protected maxPerPage: number = 100
+
+  /**
+   * Techo de filas para `paginate=false`. Sin él, `?paginate=false&limit=1e7`
+   * vacía la tabla en una sola respuesta y carga cada fila como modelo Lucid.
+   */
+  protected maxUnpaginatedLimit: number = 1000
+
+  /** Techos de complejidad de los filtros del cliente (profundidad/cantidad). */
+  protected filterLimits: FilterLimits = {}
 
   // ============================================================
   // API pública: index, findOne
@@ -74,7 +115,7 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
     // Preloads se aplican solo cuando vamos a devolver registros reales.
     // En count=true los preloads tirarían errores sobre filas vacías.
     if (params.count !== true) {
-      applyPreloads(query, params.includes ?? this.indexWith)
+      applyPreloads(query, this.resolveIncludes(params.includes, this.indexWith))
     }
     return this.paginate(query, params)
   }
@@ -82,7 +123,7 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
   async findOne(uuid: string, includes?: string[]): Promise<InstanceType<TModel> | null> {
     const pk = (this.model.primaryKey as string) || 'id'
     const query = this.model.query() as ModelQueryBuilderContract<TModel, InstanceType<TModel>>
-    applyPreloads(query, includes ?? this.showWith)
+    applyPreloads(query, this.resolveIncludes(includes, this.showWith))
     const record = await query.where(pk, uuid).first()
     return (record as InstanceType<TModel> | null) ?? null
   }
@@ -129,9 +170,11 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
     if (params.scopes) {
       for (const [scopeName, scopeArg] of Object.entries(params.scopes)) {
         if (!this.allowedScopes.includes(scopeName)) continue
-        ;(query as any).withScopes((s: any) => {
-          if (typeof s[scopeName] === 'function') s[scopeName](scopeArg)
-        })
+        // La existencia se comprueba en el MODELO, no dentro del callback: el
+        // proxy de `withScopes` lanza al acceder a un scope inexistente, así
+        // que un `typeof s[scopeName]` allí dentro nunca llega a evaluarse.
+        if (typeof (this.model as any)[scopeName] !== 'function') continue
+        ;(query as any).withScopes((s: any) => s[scopeName](scopeArg))
       }
     }
 
@@ -164,14 +207,13 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
     // 5. Filtros estructurados (ver los tres modos de `allowedFilters`)
     if (params.filters) {
       const allowed = this.resolveAllowedFilters()
-      query.where((qb: any) => applyFilters(qb, params.filters, allowed))
+      query.where((qb: any) => applyFilters(qb, params.filters, allowed, 'and', this.filterLimits))
     }
 
     // 6. Sort
     if (params.orderBy) {
-      // Solo aceptamos columnas conocidas — guard contra SQL injection vía orderBy.
-      const cols = await this.getModelColumns()
-      if (cols.includes(params.orderBy)) {
+      const sortable = await this.getSortableColumns()
+      if (sortable.includes(params.orderBy)) {
         query.orderBy(params.orderBy, params.orderDirection ?? 'asc')
       }
     }
@@ -201,13 +243,18 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
 
     const paginateFlag = params.paginate !== false
     if (!paginateFlag) {
-      const limit = params.limit ?? 1000
+      // El `limit` del cliente NUNCA amplía el techo del service: sin este
+      // Math.min, `?paginate=false&limit=1e7` devuelve la tabla entera.
+      const limit = Math.min(
+        toPositiveInt(params.limit, this.maxUnpaginatedLimit),
+        this.maxUnpaginatedLimit
+      )
       const rows = (await query.limit(limit).exec()) as unknown as InstanceType<TModel>[]
       return { data: rows }
     }
 
-    const perPage = Math.min(params.perPage ?? this.defaultPerPage, this.maxPerPage)
-    const page = params.page ?? 1
+    const perPage = Math.min(toPositiveInt(params.perPage, this.defaultPerPage), this.maxPerPage)
+    const page = toPositiveInt(params.page, 1)
     const pageObj = await query.paginate(page, perPage)
 
     const meta: PaginationMeta = {
@@ -262,12 +309,53 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
   protected resolveAllowedFilters(): ResolvedFilters {
     if (this.allowedFilters === ALLOW_ALL_FILTERS) return ALLOW_ALL_FILTERS
     if (this.allowedFilters === FILTERABLE_FROM_MODEL) {
-      if (!this._allowedFiltersCache) {
-        this._allowedFiltersCache = getSerializableColumns(this.model)
-      }
-      return this._allowedFiltersCache
+      return (this._allowedFiltersCache ??= getSerializableColumns(this.model))
     }
     return this.allowedFilters as string[]
+  }
+
+  /**
+   * Columnas por las que se puede ordenar: las reales de la tabla que ADEMÁS
+   * el modelo serializa.
+   *
+   * Restringir solo a "columnas reales" evitaba la inyección pero dejaba un
+   * oráculo: ordenar por un hash y paginar permite compararlo contra el resto
+   * de filas y reconstruirlo por posición. Igual que en los filtros, el
+   * criterio es *ordenable ⊆ visible*; `ALLOW_ALL_FILTERS` es el opt-in que
+   * también levanta esta restricción.
+   */
+  private _sortableCache?: string[]
+  protected async getSortableColumns(): Promise<string[]> {
+    if (this._sortableCache) return this._sortableCache
+    const cols = await this.getModelColumns()
+    if (this.allowedFilters === ALLOW_ALL_FILTERS) {
+      this._sortableCache = cols
+    } else {
+      const visible = getSerializableColumns(this.model)
+      this._sortableCache = cols.filter((c) => visible.includes(c))
+    }
+    return this._sortableCache
+  }
+
+  /**
+   * Resuelve los preloads efectivos. `requested` es lo que llega del cliente
+   * (`?with=`) y pasa por la whitelist; si no pide nada, se usan los del
+   * service tal cual (esos son decisión suya, no del cliente).
+   */
+  protected resolveIncludes(requested: string[] | undefined, defaults: string[]): string[] {
+    if (!requested) return defaults
+    return filterIncludes(requested, this.resolveAllowedIncludes())
+  }
+
+  private _allowedIncludesCache?: string[]
+  protected resolveAllowedIncludes(): ResolvedIncludes {
+    if (this.allowedIncludes === ALLOW_ALL_INCLUDES) return ALLOW_ALL_INCLUDES
+    if (this.allowedIncludes === INCLUDES_FROM_SERVICE) {
+      return (this._allowedIncludesCache ??= [
+        ...new Set([...this.indexWith, ...this.showWith]),
+      ])
+    }
+    return this.allowedIncludes as string[]
   }
 }
 

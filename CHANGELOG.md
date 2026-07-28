@@ -4,6 +4,57 @@ All notable changes to this package are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.1.0] — 2026-07-28
+
+### Security
+
+- **Preload whitelist (`allowedIncludes`).** `?with=` was the only
+  client-controlled surface without one: the client could preload *any*
+  relation of the model, pulling related records the endpoint never meant to
+  expose and multiplying the queries behind them. Now the client may only ask
+  for relations the service already declares (`indexWith` / `showWith`);
+  `ALLOW_ALL_INCLUDES` restores the previous behaviour explicitly. The
+  service's own default preloads are unaffected.
+- **`paginate: false` is bounded.** `limit` came straight from the client with
+  no ceiling, so `?paginate=false&limit=10000000` dumped the whole table in one
+  response and hydrated every row as a Lucid model. The client's `limit` now
+  narrows `maxUnpaginatedLimit` (default 1000) and never widens it.
+- **Sorting follows *sortable ⊆ visible*.** `orderBy` was validated against
+  every real column, so a hidden column could not be filtered but *could* be
+  sorted by — and sorting plus paging reconstructs a value by position. It is
+  now intersected with the columns the model serializes.
+- **Complexity ceilings on filters** (`filterLimits`): depth 5 and 100 applied
+  conditions by default. On `POST`/`PUT` the filter tree arrives in a JSON body
+  with no depth limit of its own; unbounded recursion blew the stack and
+  thousands of flat conditions generated a disproportionate query.
+
+### Fixed
+
+- Numeric query params (`page`, `per_page`, `limit`) are validated in the
+  parser and re-checked in the service: `?page=abc` produced `NaN`, which
+  reached `paginate()` and surfaced as a 500 instead of a normal listing.
+- The `allowedScopes` guard was dead code: Lucid's `withScopes` proxy throws
+  when a scope name doesn't exist on the model, before the `typeof` check
+  inside the callback could run. Existence is now checked on the model.
+- Postgres column introspection now filters by `table_schema =
+  current_schema()`. In a multi-schema database, homonymous tables returned
+  mixed columns — which also widened the sortable whitelist.
+
+### Added
+
+- The package now has **its own test suite and CI**: 52 tests against
+  in-memory SQLite, no host application and no Postgres required
+  (`npm test`), run on Node 20/22/24. Previously the suite lived in the
+  consumer chassis and could not verify the package on its own.
+
+### Upgrading
+
+Only the preload whitelist can change existing behaviour. If a controller
+relies on `?with=` for relations that the service does not list in `indexWith`
+or `showWith`, add them to one of those (or to `allowedIncludes`). Everything
+else either tightens a bound that legitimate clients don't reach or fixes a
+500.
+
 ## [1.0.1] — 2026-07-28
 
 ### Changed

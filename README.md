@@ -43,6 +43,9 @@ That's a full listing endpoint with pagination, search, filters and preloads.
   - [Operator whitelist](#operator-whitelist)
   - [Nesting with `orGroup` / `andGroup`](#nesting-with-orgroup--andgroup)
   - [JSON columns](#json-columns)
+  - [Complexity ceilings](#complexity-ceilings)
+- [Preload whitelist](#preload-whitelist)
+- [Sorting](#sorting)
 - [CRUD and lifecycle hooks](#crud-and-lifecycle-hooks)
 - [Escape hatch: `applyCustomFilters`](#escape-hatch-applycustomfilters)
 - [API reference](#api-reference)
@@ -75,8 +78,11 @@ Every knob is a protected property on the subclass:
 | `periodColumns` | `['created_at', 'updated_at']` | Columns allowed in date-range filters. |
 | `indexWith` | `[]` | Relations preloaded by default in `index()`. |
 | `showWith` | `[]` | Relations preloaded by default in `findOne()`. |
+| `allowedIncludes` | `indexWith` + `showWith` | Relations the *client* may request — see [below](#preload-whitelist). |
 | `defaultPerPage` | `25` | Page size when the client doesn't send one. |
 | `maxPerPage` | `100` | Ceiling for `perPage` — protects against `?perPage=100000`. |
+| `maxUnpaginatedLimit` | `1000` | Row ceiling for `paginate: false` — the client's `limit` narrows it, never widens it. |
+| `filterLimits` | depth 5, 100 conditions | Complexity ceilings for client-supplied filters. |
 
 ---
 
@@ -108,8 +114,8 @@ Query-string key → `QueryParams` property: `per_page` → `perPage`, `search_c
 | `searchColumns` | string[] | Narrows the search to a subset (intersected with the whitelist). |
 | `filters` | object \| object[] | See [Filters](#filters). |
 | `period` | object[] | `{ column, start?, end? }`; `column` must be in `periodColumns`. |
-| `orderBy` / `orderDirection` | string | `orderBy` is validated against the real table columns (guard against SQL injection). |
-| `includes` | string[] | Relations to preload; dot notation for nested (`profile.wallets`). |
+| `orderBy` / `orderDirection` | string | `orderBy` must be a real **and visible** column — see [Sorting](#sorting). |
+| `includes` | string[] | Relations to preload; dot notation for nested (`profile.wallets`). Filtered by `allowedIncludes`. |
 | `scopes` | object | Lucid scopes to apply: `{ withStatus: 'delivered' }`. |
 | `paginationBaseUrl` / `paginationExtraQs` | string / object | Build absolute pagination links in `meta`. |
 
@@ -209,6 +215,38 @@ Use `->` to reach into a JSON path; the whitelist checks the **root** field:
 { whereJsonLength: [{ field: 'tags', op: '>', value: 3 }] }
 ```
 
+### Complexity ceilings
+
+Filters are recursive and, on `POST`/`PUT`, they arrive in a JSON body with no depth limit of its own. Two ceilings bound the damage: **depth 5** and **100 applied conditions** per request. What exceeds them is dropped silently, like everything else in the filter pipeline. Raise or lower them per service:
+
+```ts
+protected filterLimits = { maxDepth: 8, maxConditions: 250 }
+```
+
+---
+
+## Preload whitelist
+
+`?with=` is client input, so it gets the same treatment as filters: **the client may only ask for relations the service already declares**. Preloads the service applies on its own (`indexWith` / `showWith`) are never filtered — they're your decision, not the client's.
+
+| `allowedIncludes` | Client may preload | Use it when |
+|---|---|---|
+| *(not declared)* | whatever is in `indexWith` + `showWith` | the common case — zero extra config |
+| `['owner', 'owner.profile']` | only those paths | you want to expose more than you preload by default |
+| `ALLOW_ALL_INCLUDES` | any relation on the model | internal tooling; this was the implicit behaviour before 1.1.0 |
+
+A requested path also passes if it is a **prefix** of an allowed one (`owner` when `owner.profile` is allowed) — asking for less is always fine. The reverse is not: `owner.profile` when only `owner` is allowed is one level deeper than anyone authorized.
+
+Without this, `?with=owner` on a public listing pulls the entire related model into the response — including whatever that model serializes — and nested paths multiply the queries behind it.
+
+---
+
+## Sorting
+
+`orderBy` must name a column that exists **and** that the model serializes. The first half is the SQL-injection guard; the second closes an oracle: sorting by a hidden column and paging through the results lets an attacker compare that value across rows and reconstruct it by position. Same principle as filters — *sortable ⊆ visible* — and `ALLOW_ALL_FILTERS` lifts both restrictions together.
+
+`orderDirection` only ever reaches Knex as `asc` or `desc`.
+
 ---
 
 ## CRUD and lifecycle hooks
@@ -278,11 +316,17 @@ class RecordNotFoundError extends Error { status = 404 }
 
 // Sentinels
 const ALLOW_ALL_FILTERS: unique symbol
-const FILTERABLE_FROM_MODEL: unique symbol   // the default
+const FILTERABLE_FROM_MODEL: unique symbol   // the default for allowedFilters
+const ALLOW_ALL_INCLUDES: unique symbol
+const INCLUDES_FROM_SERVICE: unique symbol   // the default for allowedIncludes
+
+// Constants
+const MAX_FILTER_DEPTH = 5
+const MAX_FILTER_CONDITIONS = 100
 
 // Types
-type AllowedFilters, QueryParams, PaginatedResult, PaginationMeta,
-     PeriodFilter, FilterBlock, FilterCondition, FilterMethod
+type AllowedFilters, AllowedIncludes, FilterLimits, QueryParams, PaginatedResult,
+     PaginationMeta, PeriodFilter, FilterBlock, FilterCondition, FilterMethod
 ```
 
 ---
@@ -294,6 +338,10 @@ type AllowedFilters, QueryParams, PaginatedResult, PaginationMeta,
 **Silent skipping over errors.** Unknown filter methods, non-whitelisted fields and unsafe operators are dropped, not rejected. Filters come from untrusted input; failing loudly turns every bad-faith query string into a 500. If your API needs explicit feedback, validate at the controller/validator layer.
 
 **Column introspection is cached** per service instance: the `orderBy` guard reads the real table columns once; the default filter whitelist reads the model's own metadata and never touches the database.
+
+**Every client-controlled surface has a whitelist.** Fields, operators, sort columns, preloads, scopes, search columns and every numeric bound. That symmetry is the point: a gap in one of them is worth more to an attacker than hardening the others further.
+
+**The package tests itself.** `npm test` runs the full suite against in-memory SQLite — no Postgres, no migrations, no host application. CI runs it on Node 20, 22 and 24 before anything ships.
 
 ---
 

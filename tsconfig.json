@@ -11,6 +11,10 @@
     "skipLibCheck": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
+    // Requerido por @poppinss/ts-exec para importar los .spec.ts de la suite
+    // (mismo ajuste que trae @adonisjs/tsconfig). No afecta al build: las
+    // fuentes ya importan con extensión .js.
+    "rewriteRelativeImportExtensions": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "rootDir": "./src",

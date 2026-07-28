@@ -55,10 +55,15 @@ export function parseQueryParams(request: Request): QueryParams {
     params.period = raw.period_filters as PeriodFilter[]
   }
 
-  // Pagination + sort
-  if (raw.page !== undefined) params.page = Number(raw.page)
-  if (raw.per_page !== undefined) params.perPage = Number(raw.per_page)
-  if (raw.limit !== undefined) params.limit = Number(raw.limit)
+  // Pagination + sort. `Number('abc')` es NaN y `Number([])` es 0: se
+  // descartan aquí para que nunca lleguen a la capa de servicios. El techo
+  // real lo pone igualmente el service (maxPerPage/maxUnpaginatedLimit).
+  const page = toPositiveInt(raw.page)
+  if (page !== undefined) params.page = page
+  const perPage = toPositiveInt(raw.per_page)
+  if (perPage !== undefined) params.perPage = perPage
+  const limit = toPositiveInt(raw.limit)
+  if (limit !== undefined) params.limit = limit
   if (typeof raw.order_by === 'string') params.orderBy = raw.order_by
   if (raw.order_direction === 'asc' || raw.order_direction === 'desc') {
     params.orderDirection = raw.order_direction
@@ -86,6 +91,14 @@ export function parseQueryParams(request: Request): QueryParams {
   }
 
   return params
+}
+
+/** Entero >= 1 o undefined. Un valor basura se ignora, no se propaga. */
+function toPositiveInt(v: any): number | undefined {
+  if (v === undefined || v === null || v === '' || Array.isArray(v)) return undefined
+  const n = Number(v)
+  if (!Number.isFinite(n) || n < 1) return undefined
+  return Math.floor(n)
 }
 
 function parseBool(v: any): boolean {

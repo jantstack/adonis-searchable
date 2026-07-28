@@ -59,6 +59,27 @@ export type AllowedFilters = string[] | typeof ALLOW_ALL_FILTERS | typeof FILTER
 export type ResolvedFilters = string[] | typeof ALLOW_ALL_FILTERS
 
 /**
+ * Profundidad máxima de anidamiento (`orGroup`/`andGroup`) por defecto.
+ * En GET el parser `qs` ya acota el nesting, pero en POST/PUT el body JSON no
+ * tiene límite: sin techo, un cuerpo con miles de grupos anidados recursa
+ * hasta desbordar la pila.
+ */
+export const MAX_FILTER_DEPTH = 5
+
+/**
+ * Número máximo de condiciones aplicadas por petición (por defecto). Acota el
+ * tamaño del SQL generado: miles de condiciones planas no desbordan la pila,
+ * pero sí producen una query desproporcionada.
+ */
+export const MAX_FILTER_CONDITIONS = 100
+
+/** Techos ajustables por el service (ver `SearchableService.filterLimits`). */
+export interface FilterLimits {
+  maxDepth?: number
+  maxConditions?: number
+}
+
+/**
  * Aplica recursivamente un bloque de filtros (o array de bloques) a un query.
  * - allowedColumns: whitelist YA RESUELTA de campos filtrables (el service la
  *   materializa desde `allowedFilters`). Una condición cuyo campo raíz (antes
@@ -66,26 +87,56 @@ export type ResolvedFilters = string[] | typeof ALLOW_ALL_FILTERS
  *   descarta todo. `ALLOW_ALL_FILTERS` salta el chequeo por completo.
  * - parentLogic: cuando el padre es un orGroup, los `where` se reescriben como
  *   `orWhere` automáticamente.
+ * - limits: techos de profundidad y de número de condiciones. Lo que los
+ *   excede se descarta en silencio, igual que el resto del helper.
  */
 export function applyFilters(
   query: any,
   filters: FilterBlock | FilterBlock[] | undefined,
   allowedColumns: ResolvedFilters = [],
-  parentLogic: Logic = 'and'
+  parentLogic: Logic = 'and',
+  limits: FilterLimits = {}
+): void {
+  applyFiltersInternal(query, filters, allowedColumns, parentLogic, 0, {
+    maxDepth: limits.maxDepth ?? MAX_FILTER_DEPTH,
+    left: limits.maxConditions ?? MAX_FILTER_CONDITIONS,
+  })
+}
+
+/** Presupuesto compartido por toda la recursión de una misma llamada. */
+interface Budget {
+  maxDepth: number
+  left: number
+}
+
+function applyFiltersInternal(
+  query: any,
+  filters: FilterBlock | FilterBlock[] | undefined,
+  allowedColumns: ResolvedFilters,
+  parentLogic: Logic,
+  depth: number,
+  budget: Budget
 ): void {
   if (!filters) return
 
   if (Array.isArray(filters)) {
-    filters.forEach((block) => applyFilters(query, block, allowedColumns, parentLogic))
+    filters.forEach((block) =>
+      applyFiltersInternal(query, block, allowedColumns, parentLogic, depth, budget)
+    )
     return
   }
 
   for (const [method, conditions] of Object.entries(filters)) {
     if (method === 'orGroup' || method === 'andGroup') {
+      // El techo se comprueba ANTES de abrir el grupo: si se recursara y el
+      // cuerpo saliera vacío, Knex generaría un `where ()` inválido.
+      if (depth >= budget.maxDepth || budget.left <= 0) continue
       const subLogic: Logic = method === 'orGroup' ? 'or' : 'and'
       const fnName = method === 'orGroup' ? 'orWhere' : 'where'
       for (const group of conditions as FilterBlock[]) {
-        query[fnName]((q: any) => applyFilters(q, group, allowedColumns, subLogic))
+        query[fnName]((q: any) =>
+          applyFiltersInternal(q, group, allowedColumns, subLogic, depth + 1, budget)
+        )
       }
       continue
     }
@@ -93,6 +144,7 @@ export function applyFilters(
     if (!Array.isArray(conditions)) continue
 
     for (const cond of conditions as FilterCondition[]) {
+      if (budget.left <= 0) return
       if (!cond.field) continue
       // Solo pasan los campos de la whitelist resuelta (por defecto, las
       // columnas que el modelo serializa). ALLOW_ALL_FILTERS es el opt-in
@@ -101,6 +153,10 @@ export function applyFilters(
         const rootField = cond.field.split('->')[0]
         if (!allowedColumns.includes(rootField)) continue
       }
+
+      // Consume presupuesto toda condición que llegue a generar SQL. Lo que
+      // ya se descartó arriba no cuenta: no cuesta nada en la base.
+      budget.left -= 1
 
       // Cuando el padre es OR, transformamos `where`→`orWhere`
       const methodName = parentLogic === 'or' && method === 'where' ? 'orWhere' : method
