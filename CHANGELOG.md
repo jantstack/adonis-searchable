@@ -4,7 +4,7 @@ All notable changes to this package are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [1.1.0] — 2026-07-28
+## [2.0.0] — 2026-07-29
 
 ### Security
 
@@ -23,16 +23,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   every real column, so a hidden column could not be filtered but *could* be
   sorted by — and sorting plus paging reconstructs a value by position. It is
   now intersected with the columns the model serializes.
-- **Complexity ceilings on filters** (`filterLimits`): depth 5 and 100 applied
-  conditions by default. On `POST`/`PUT` the filter tree arrives in a JSON body
-  with no depth limit of its own; unbounded recursion blew the stack and
-  thousands of flat conditions generated a disproportionate query.
+- **Complexity ceilings on filters** (`filterLimits`): depth 5, 100 applied
+  conditions and 500 values per `whereIn`, by default. On `POST`/`PUT` the
+  filter tree arrives in a JSON body with no depth limit of its own; unbounded
+  recursion blew the stack and thousands of flat conditions generated a
+  disproportionate query. The per-`whereIn` ceiling closes the gap the other
+  two left open: one `whereIn` carrying 100 000 values still counts as a
+  single condition.
 
 ### Fixed
 
 - Numeric query params (`page`, `per_page`, `limit`) are validated in the
   parser and re-checked in the service: `?page=abc` produced `NaN`, which
   reached `paginate()` and surfaced as a 500 instead of a normal listing.
+- Period-filter bounds must now be real `YYYY-MM-DD` dates. They were always
+  passed as bindings (no injection), but a non-date produced an invalid
+  literal and the database's error surfaced as a 500 — for a malformed query
+  string, which should simply be ignored like every other unrecognized input.
 - The `allowedScopes` guard was dead code: Lucid's `withScopes` proxy throws
   when a scope name doesn't exist on the model, before the `typeof` check
   inside the callback could run. Existence is now checked on the model.
@@ -42,7 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- The package now has **its own test suite and CI**: 52 tests against
+- The package now has **its own test suite and CI**: 58 tests against
   in-memory SQLite, no host application and no Postgres required
   (`npm test`), run on Node 20/22/24. Previously the suite lived in the
   consumer chassis and could not verify the package on its own.

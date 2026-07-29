@@ -82,7 +82,7 @@ Every knob is a protected property on the subclass:
 | `defaultPerPage` | `25` | Page size when the client doesn't send one. |
 | `maxPerPage` | `100` | Ceiling for `perPage` — protects against `?perPage=100000`. |
 | `maxUnpaginatedLimit` | `1000` | Row ceiling for `paginate: false` — the client's `limit` narrows it, never widens it. |
-| `filterLimits` | depth 5, 100 conditions | Complexity ceilings for client-supplied filters. |
+| `filterLimits` | depth 5, 100 conditions, 500 `whereIn` values | Complexity ceilings for client-supplied filters. |
 
 ---
 
@@ -113,7 +113,7 @@ Query-string key → `QueryParams` property: `per_page` → `perPage`, `search_c
 | `search` | string | Fulltext across `searchableColumns`. |
 | `searchColumns` | string[] | Narrows the search to a subset (intersected with the whitelist). |
 | `filters` | object \| object[] | See [Filters](#filters). |
-| `period` | object[] | `{ column, start?, end? }`; `column` must be in `periodColumns`. |
+| `period` | object[] | `{ column, start?, end? }`; `column` must be in `periodColumns` and the dates must be real `YYYY-MM-DD`. |
 | `orderBy` / `orderDirection` | string | `orderBy` must be a real **and visible** column — see [Sorting](#sorting). |
 | `includes` | string[] | Relations to preload; dot notation for nested (`profile.wallets`). Filtered by `allowedIncludes`. |
 | `scopes` | object | Lucid scopes to apply: `{ withStatus: 'delivered' }`. |
@@ -217,11 +217,13 @@ Use `->` to reach into a JSON path; the whitelist checks the **root** field:
 
 ### Complexity ceilings
 
-Filters are recursive and, on `POST`/`PUT`, they arrive in a JSON body with no depth limit of its own. Two ceilings bound the damage: **depth 5** and **100 applied conditions** per request. What exceeds them is dropped silently, like everything else in the filter pipeline. Raise or lower them per service:
+Filters are recursive and, on `POST`/`PUT`, they arrive in a JSON body with no depth limit of its own. Three ceilings bound the damage: **depth 5**, **100 applied conditions** per request, and **500 values** in a single `whereIn` (a condition count alone doesn't help — one `whereIn` with 100 000 values is still one condition). What exceeds them is dropped silently, like everything else in the filter pipeline. Raise or lower them per service:
 
 ```ts
-protected filterLimits = { maxDepth: 8, maxConditions: 250 }
+protected filterLimits = { maxDepth: 8, maxConditions: 250, maxInValues: 1000 }
 ```
+
+An oversized `whereIn` is dropped whole rather than truncated: a truncated set answers a question the client didn't ask, and does it silently.
 
 ---
 
@@ -233,7 +235,7 @@ protected filterLimits = { maxDepth: 8, maxConditions: 250 }
 |---|---|---|
 | *(not declared)* | whatever is in `indexWith` + `showWith` | the common case — zero extra config |
 | `['owner', 'owner.profile']` | only those paths | you want to expose more than you preload by default |
-| `ALLOW_ALL_INCLUDES` | any relation on the model | internal tooling; this was the implicit behaviour before 1.1.0 |
+| `ALLOW_ALL_INCLUDES` | any relation on the model | internal tooling; this was the implicit behaviour before 2.0.0 |
 
 A requested path also passes if it is a **prefix** of an allowed one (`owner` when `owner.profile` is allowed) — asking for less is always fine. The reverse is not: `owner.profile` when only `owner` is allowed is one level deeper than anyone authorized.
 
@@ -323,6 +325,7 @@ const INCLUDES_FROM_SERVICE: unique symbol   // the default for allowedIncludes
 // Constants
 const MAX_FILTER_DEPTH = 5
 const MAX_FILTER_CONDITIONS = 100
+const MAX_FILTER_IN_VALUES = 500
 
 // Types
 type AllowedFilters, AllowedIncludes, FilterLimits, QueryParams, PaginatedResult,

@@ -24,6 +24,7 @@ export {
   FILTERABLE_FROM_MODEL,
   MAX_FILTER_DEPTH,
   MAX_FILTER_CONDITIONS,
+  MAX_FILTER_IN_VALUES,
 } from './helpers/apply_filters.js'
 export type { AllowedFilters, FilterLimits } from './helpers/apply_filters.js'
 

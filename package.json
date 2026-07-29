@@ -1,6 +1,6 @@
 {
   "name": "@jantstack/adonis-searchable",
-  "version": "1.1.0",
+  "version": "2.0.0",
   "description": "Generic service layer for AdonisJS + Lucid: paginated listing, fulltext search, declarative filters with a safe-by-default whitelist, period filters and preloads — without HttpContext.",
   "type": "module",
   "license": "MIT",

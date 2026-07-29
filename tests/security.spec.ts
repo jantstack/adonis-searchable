@@ -184,6 +184,24 @@ test.group('filtros — techos de complejidad', (group) => {
     assert.equal(result.meta.total, 1)
   })
 
+  test('un whereIn con un array desproporcionado se descarta', async ({ assert }) => {
+    // El techo de condiciones no lo cubría: un solo whereIn cuenta como UNA
+    // condición y puede llevar cien mil valores.
+    const huge = Array.from({ length: 100_000 }, (_, i) => `nombre-${i}`)
+    const result: any = await new PlainOrgService().index({
+      filters: { whereIn: [{ field: 'name', values: huge }] },
+    })
+    assert.equal(result.meta.total, 2)
+  })
+
+  test('un whereIn de tamaño razonable sigue filtrando', async ({ assert }) => {
+    const result: any = await new PlainOrgService().index({
+      filters: { whereIn: [{ field: 'name', values: ['Acme', 'no-existe'] }] },
+    })
+    assert.equal(result.meta.total, 1)
+    assert.equal(result.data[0].name, 'Acme')
+  })
+
   test('una consulta normal no se ve afectada por los techos', async ({ assert }) => {
     const result: any = await new PlainOrgService().index({
       filters: {
@@ -198,7 +216,48 @@ test.group('filtros — techos de complejidad', (group) => {
 })
 
 // ============================================================
-// 3. orderBy
+// 3. Period filters
+// ============================================================
+
+test.group('period filters', (group) => {
+  group.each.setup(async () => {
+    await truncateAll()
+    await seed()
+  })
+
+  test('un rango válido filtra', async ({ assert }) => {
+    const result: any = await new PlainOrgService().index({
+      period: [{ column: 'created_at', start: '2000-01-01', end: '2100-01-01' }],
+    })
+    assert.equal(result.meta.total, 2)
+  })
+
+  test('una columna fuera de periodColumns se descarta', async ({ assert }) => {
+    const result: any = await new PlainOrgService().index({
+      period: [{ column: 'name', start: '2000-01-01' }],
+    })
+    assert.equal(result.meta.total, 2)
+  })
+
+  test('una fecha basura se descarta en vez de reventar la query', async ({ assert }) => {
+    // Va bindeada (no hay inyección), pero un literal inválido hace que la DB
+    // responda con error: un 500 por un query string mal formado.
+    const result: any = await new PlainOrgService().index({
+      period: [{ column: 'created_at', start: 'no-soy-una-fecha' }],
+    })
+    assert.equal(result.meta.total, 2)
+  })
+
+  test('una fecha con formato válido pero inexistente también se descarta', async ({ assert }) => {
+    const result: any = await new PlainOrgService().index({
+      period: [{ column: 'created_at', start: '2026-02-31' }],
+    })
+    assert.equal(result.meta.total, 2)
+  })
+})
+
+// ============================================================
+// 4. orderBy
 // ============================================================
 
 test.group('orderBy', (group) => {

@@ -37,6 +37,21 @@ function toPositiveInt(value: number | undefined, fallback: number): number {
   return Math.floor(value)
 }
 
+/**
+ * `YYYY-MM-DD` (o un ISO que empiece así) y que además sea una fecha real:
+ * `2026-02-31` casa el patrón pero no existe, y la DB la rechazaría.
+ * `undefined` pasa: un period con solo `start` o solo `end` es válido.
+ */
+function isIsoDate(value: string | null | undefined): boolean {
+  if (value === undefined || value === null || value === '') return true
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}/.test(value)) return false
+  const [y, m, d] = value.slice(0, 10).split('-').map(Number)
+  const parsed = new Date(Date.UTC(y, m - 1, d))
+  return (
+    parsed.getUTCFullYear() === y && parsed.getUTCMonth() === m - 1 && parsed.getUTCDate() === d
+  )
+}
+
 export abstract class SearchableService<TModel extends typeof BaseModel> {
   /** Modelo Lucid sobre el que opera el service. Subclases lo declaran. */
   protected abstract model: TModel
@@ -82,7 +97,7 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
    *  - **whitelist explícita** (`['owner', 'owner.profile']`): para exponer
    *    más de lo que se precarga por defecto.
    *  - **`ALLOW_ALL_INCLUDES`**: cualquier relación del modelo — el
-   *    comportamiento implícito hasta 1.1.0. Solo para servicios internos:
+   *    comportamiento implícito hasta 2.0.0. Solo para servicios internos:
    *    una relación no prevista viaja entera en la respuesta.
    */
   protected allowedIncludes: AllowedIncludes = INCLUDES_FROM_SERVICE
@@ -194,6 +209,11 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
     if (params.period?.length) {
       for (const p of params.period) {
         if (!this.periodColumns.includes(p.column)) continue
+        // Los valores se concatenan a ' 00:00:00' y viajan bindeados (no hay
+        // inyección), pero un valor que no sea una fecha produce un literal
+        // inválido y la DB responde con un error → 500 por un query string
+        // mal formado. Se descarta, como el resto de entrada no reconocida.
+        if (!isIsoDate(p.start) || !isIsoDate(p.end)) continue
         if (p.start && p.end) {
           query.whereBetween(p.column, [`${p.start} 00:00:00`, `${p.end} 23:59:59`])
         } else if (p.start) {

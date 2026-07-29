@@ -5,7 +5,7 @@
 
 /**
  * Sentinel de opt-in explícito: el cliente puede precargar CUALQUIER relación
- * del modelo. Era el comportamiento implícito hasta 1.1.0 — con él, un
+ * del modelo. Era el comportamiento implícito hasta 2.0.0 — con él, un
  * `?with=owner` sobre un listado público arrastra el modelo relacionado
  * entero en la respuesta, sin que el service lo haya autorizado.
  * Ver `SearchableService.allowedIncludes`.

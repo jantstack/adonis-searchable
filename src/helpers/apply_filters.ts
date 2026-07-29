@@ -73,10 +73,19 @@ export const MAX_FILTER_DEPTH = 5
  */
 export const MAX_FILTER_CONDITIONS = 100
 
+/**
+ * Número máximo de valores admitidos en un `whereIn`/`whereNotIn`.
+ * El techo de condiciones no bastaba: un solo `whereIn` con 100.000 valores
+ * cuenta como UNA condición y genera un SQL desproporcionado (y en Postgres
+ * revienta el límite de parámetros por sentencia).
+ */
+export const MAX_FILTER_IN_VALUES = 500
+
 /** Techos ajustables por el service (ver `SearchableService.filterLimits`). */
 export interface FilterLimits {
   maxDepth?: number
   maxConditions?: number
+  maxInValues?: number
 }
 
 /**
@@ -100,6 +109,7 @@ export function applyFilters(
   applyFiltersInternal(query, filters, allowedColumns, parentLogic, 0, {
     maxDepth: limits.maxDepth ?? MAX_FILTER_DEPTH,
     left: limits.maxConditions ?? MAX_FILTER_CONDITIONS,
+    maxInValues: limits.maxInValues ?? MAX_FILTER_IN_VALUES,
   })
 }
 
@@ -107,6 +117,7 @@ export function applyFilters(
 interface Budget {
   maxDepth: number
   left: number
+  maxInValues: number
 }
 
 function applyFiltersInternal(
@@ -176,7 +187,11 @@ function applyFiltersInternal(
         case 'whereNotIn':
         case 'orWhereNotIn': {
           const vals = cond.values ?? cond.value
-          query[methodName](cond.field, Array.isArray(vals) ? vals : [vals])
+          const list = Array.isArray(vals) ? vals : [vals]
+          // Se descarta entera, no se recorta: un `whereIn` truncado responde
+          // a una pregunta que el cliente no hizo, y en silencio.
+          if (list.length > budget.maxInValues) continue
+          query[methodName](cond.field, list)
           break
         }
         case 'whereBetween':
