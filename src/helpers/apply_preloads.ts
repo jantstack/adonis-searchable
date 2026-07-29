@@ -13,15 +13,27 @@
 export const ALLOW_ALL_INCLUDES = Symbol('searchable:allow-all-includes')
 
 /**
- * Modo por defecto: precargable = lo que el service ya declara en `indexWith`
- * y `showWith`. Es la intención del autor expresada donde ya la escribía, así
- * que el caso normal no necesita ni una línea extra.
+ * Modo por defecto: precargable = lo que ESE método ya declara precargar
+ * (`indexWith` en el listado, `showWith` en el detalle). La intención del
+ * autor está donde ya la escribía y con la granularidad correcta, así que el
+ * caso normal no necesita ni una línea extra.
  */
 export const INCLUDES_FROM_SERVICE = Symbol('searchable:includes-from-service')
+
+/** Los dos métodos que aceptan includes del cliente. */
+export type IncludesMethod = 'index' | 'show'
+
+/**
+ * Extras por método: lo que el cliente puede pedir ADEMÁS de lo que el
+ * endpoint ya precarga. Permite abrir el listado sin abrir el detalle, o al
+ * revés — que es la distinción que una lista única no sabe expresar.
+ */
+export type AllowedIncludesByMethod = { [K in IncludesMethod]?: string[] }
 
 /** Lo que se escribe en `allowedIncludes`. */
 export type AllowedIncludes =
   | string[]
+  | AllowedIncludesByMethod
   | typeof ALLOW_ALL_INCLUDES
   | typeof INCLUDES_FROM_SERVICE
 

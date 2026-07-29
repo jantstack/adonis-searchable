@@ -78,7 +78,7 @@ Every knob is a protected property on the subclass:
 | `periodColumns` | `['created_at', 'updated_at']` | Columns allowed in date-range filters. |
 | `indexWith` | `[]` | Relations preloaded by default in `index()`. |
 | `showWith` | `[]` | Relations preloaded by default in `findOne()`. |
-| `allowedIncludes` | `indexWith` + `showWith` | Relations the *client* may request — see [below](#preload-whitelist). |
+| `allowedIncludes` | per method: what that method preloads | What the *client* may request on top — see [below](#preload-whitelist). |
 | `defaultPerPage` | `25` | Page size when the client doesn't send one. |
 | `maxPerPage` | `100` | Ceiling for `perPage` — protects against `?perPage=100000`. |
 | `maxUnpaginatedLimit` | `1000` | Row ceiling for `paginate: false` — the client's `limit` narrows it, never widens it. |
@@ -229,17 +229,25 @@ An oversized `whereIn` is dropped whole rather than truncated: a truncated set a
 
 ## Preload whitelist
 
-`?with=` is client input, so it gets the same treatment as filters: **the client may only ask for relations the service already declares**. Preloads the service applies on its own (`indexWith` / `showWith`) are never filtered — they're your decision, not the client's.
+`?with=` is client input, so it gets the same treatment as filters. Two properties split the job:
+
+- **`indexWith` / `showWith` say what the service loads.** They always apply — whether the client asks or not.
+- **`allowedIncludes` says what the client may ask for on top.** Per method, and additive.
 
 | `allowedIncludes` | Client may preload | Use it when |
 |---|---|---|
-| *(not declared)* | whatever is in `indexWith` + `showWith` | the common case — zero extra config |
-| `['owner', 'owner.profile']` | only those paths | you want to expose more than you preload by default |
+| *(not declared)* | exactly what **that method** preloads | the common case — zero extra config |
+| `{ index: ['tags'], show: ['tags', 'audit'] }` | that, plus the method's own preloads | opening the listing without opening the detail, or the reverse |
+| `['tags']` | that, on both methods | the same extra everywhere |
 | `ALLOW_ALL_INCLUDES` | any relation on the model | internal tooling; this was the implicit behaviour before 2.0.0 |
+
+The default is **per method on purpose**. A relation listed only in `showWith` doesn't become requestable on the listing: fetching one organization's invitations is proportionate; fetching them for the 25 rows of a page — every invited person's email — is a different thing. Nothing stops you from opening it, but opening it has to be something you wrote.
+
+The explicit forms are **additive**: you never repeat in `allowedIncludes` what is already in `indexWith` or `showWith`. A relation preloaded by default travels in the response whether the client asks for it or not, so "denying" it would mean nothing.
 
 A requested path also passes if it is a **prefix** of an allowed one (`owner` when `owner.profile` is allowed) — asking for less is always fine. The reverse is not: `owner.profile` when only `owner` is allowed is one level deeper than anyone authorized.
 
-Without this, `?with=owner` on a public listing pulls the entire related model into the response — including whatever that model serializes — and nested paths multiply the queries behind it.
+Without any of this, `?with=owner` on a public listing pulls the entire related model into the response — including whatever that model serializes — and nested paths multiply the queries behind it.
 
 ---
 
@@ -328,8 +336,9 @@ const MAX_FILTER_CONDITIONS = 100
 const MAX_FILTER_IN_VALUES = 500
 
 // Types
-type AllowedFilters, AllowedIncludes, FilterLimits, QueryParams, PaginatedResult,
-     PaginationMeta, PeriodFilter, FilterBlock, FilterCondition, FilterMethod
+type AllowedFilters, AllowedIncludes, AllowedIncludesByMethod, IncludesMethod,
+     FilterLimits, QueryParams, PaginatedResult, PaginationMeta, PeriodFilter,
+     FilterBlock, FilterCondition, FilterMethod
 ```
 
 ---

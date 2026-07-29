@@ -32,7 +32,11 @@ export type { AllowedFilters, FilterLimits } from './helpers/apply_filters.js'
 // relaciones que el service ya declara (INCLUDES_FROM_SERVICE);
 // ALLOW_ALL_INCLUDES es el opt-in al comportamiento permisivo previo.
 export { ALLOW_ALL_INCLUDES, INCLUDES_FROM_SERVICE } from './helpers/apply_preloads.js'
-export type { AllowedIncludes } from './helpers/apply_preloads.js'
+export type {
+  AllowedIncludes,
+  AllowedIncludesByMethod,
+  IncludesMethod,
+} from './helpers/apply_preloads.js'
 
 export type {
   QueryParams,

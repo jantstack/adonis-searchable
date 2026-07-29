@@ -12,9 +12,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   client-controlled surface without one: the client could preload *any*
   relation of the model, pulling related records the endpoint never meant to
   expose and multiplying the queries behind them. Now the client may only ask
-  for relations the service already declares (`indexWith` / `showWith`);
-  `ALLOW_ALL_INCLUDES` restores the previous behaviour explicitly. The
-  service's own default preloads are unaffected.
+  for what **that method** already preloads — `indexWith` on the listing,
+  `showWith` on the detail — so a relation meant for a single record doesn't
+  quietly become requestable for all 25 rows of a page. `allowedIncludes`
+  opens more, per method (`{ index: [...], show: [...] }`) or for both (a
+  plain array), additive to those defaults; `ALLOW_ALL_INCLUDES` restores the
+  previous behaviour explicitly. The service's own preloads are never
+  filtered.
 - **`paginate: false` is bounded.** `limit` came straight from the client with
   no ceiling, so `?paginate=false&limit=10000000` dumped the whole table in one
   response and hydrated every row as a Lucid model. The client's `limit` now
@@ -49,7 +53,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
-- The package now has **its own test suite and CI**: 58 tests against
+- The package now has **its own test suite and CI**: 62 tests against
   in-memory SQLite, no host application and no Postgres required
   (`npm test`), run on Node 20/22/24. Previously the suite lived in the
   consumer chassis and could not verify the package on its own.
@@ -57,10 +61,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ### Upgrading
 
 Only the preload whitelist can change existing behaviour. If a controller
-relies on `?with=` for relations that the service does not list in `indexWith`
-or `showWith`, add them to one of those (or to `allowedIncludes`). Everything
-else either tightens a bound that legitimate clients don't reach or fixes a
-500.
+relies on `?with=` for a relation that the method in question doesn't preload,
+open it explicitly:
+
+```ts
+protected allowedIncludes: AllowedIncludes = { index: ['tags'], show: ['tags'] }
+```
+
+Note this is stricter than "declared anywhere in the service": a relation in
+`showWith` alone no longer makes it requestable on the listing. Everything else
+either tightens a bound legitimate clients don't reach, or turns a 500 into a
+normal response.
 
 ## [1.0.1] — 2026-07-28
 

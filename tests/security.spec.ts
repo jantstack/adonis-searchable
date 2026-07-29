@@ -373,6 +373,63 @@ test.group('preloads — whitelist de includes', (group) => {
     assert.notExists(result.data[0].createdByUser?.organizations)
   })
 
+  test('lo que solo está en showWith NO abre el listado', async ({ assert }) => {
+    // El perfil de exposición no es el mismo: traer la relación de UN registro
+    // es proporcionado; traerla de los 25 de una página, no. Por eso la
+    // whitelist es por método y no la unión de ambas listas.
+    class SplitService extends SearchableService<typeof TestOrg> {
+      protected model = TestOrg
+      protected showWith = ['createdByUser']
+    }
+
+    const listado: any = await new SplitService().index({ includes: ['createdByUser'] })
+    assert.notExists(listado.data[0].createdByUser)
+
+    const org = await TestOrg.query().firstOrFail()
+    const detalle = await new SplitService().findOne(org.uuid, ['createdByUser'])
+    assert.exists(detalle!.createdByUser)
+  })
+
+  test('allowedIncludes por método abre solo el que se indique', async ({ assert }) => {
+    class IndexOnlyService extends SearchableService<typeof TestOrg> {
+      protected model = TestOrg
+      protected allowedIncludes: AllowedIncludes = { index: ['createdByUser'] }
+    }
+
+    const listado: any = await new IndexOnlyService().index({ includes: ['createdByUser'] })
+    assert.exists(listado.data[0].createdByUser)
+
+    const org = await TestOrg.query().firstOrFail()
+    const detalle = await new IndexOnlyService().findOne(org.uuid, ['createdByUser'])
+    assert.notExists(detalle!.createdByUser)
+  })
+
+  test('allowedIncludes como lista simple aplica a los dos métodos', async ({ assert }) => {
+    class BothService extends SearchableService<typeof TestOrg> {
+      protected model = TestOrg
+      protected allowedIncludes: AllowedIncludes = ['createdByUser']
+    }
+
+    const listado: any = await new BothService().index({ includes: ['createdByUser'] })
+    assert.exists(listado.data[0].createdByUser)
+
+    const org = await TestOrg.query().firstOrFail()
+    const detalle = await new BothService().findOne(org.uuid, ['createdByUser'])
+    assert.exists(detalle!.createdByUser)
+  })
+
+  test('allowedIncludes es aditivo: no anula lo que el método ya precarga', async ({ assert }) => {
+    // Declarar un extra no obliga a repetir los defaults del método.
+    class AdditiveService extends SearchableService<typeof TestOrg> {
+      protected model = TestOrg
+      protected indexWith = ['createdByUser']
+      protected allowedIncludes: AllowedIncludes = { index: ['otraRelacion'] }
+    }
+
+    const result: any = await new AdditiveService().index({ includes: ['createdByUser'] })
+    assert.exists(result.data[0].createdByUser)
+  })
+
   test('ALLOW_ALL_INCLUDES devuelve el comportamiento permisivo', async ({ assert }) => {
     class OpenService extends SearchableService<typeof TestOrg> {
       protected model = TestOrg

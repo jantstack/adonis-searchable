@@ -24,7 +24,12 @@ import {
   ALLOW_ALL_INCLUDES,
   INCLUDES_FROM_SERVICE,
 } from './helpers/apply_preloads.js'
-import type { AllowedIncludes, ResolvedIncludes } from './helpers/apply_preloads.js'
+import type {
+  AllowedIncludes,
+  AllowedIncludesByMethod,
+  IncludesMethod,
+  ResolvedIncludes,
+} from './helpers/apply_preloads.js'
 import { getColumns, getSerializableColumns } from './helpers/column_types.js'
 
 /**
@@ -87,18 +92,24 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
   protected showWith: string[] = []
 
   /**
-   * Relaciones que el CLIENTE puede pedir (`?with=`). Los preloads por
-   * defecto del service (`indexWith`/`showWith`) se aplican siempre; esto
-   * solo gobierna lo que llega de fuera. Tres modos:
+   * Lo que el CLIENTE puede pedir de más con `?with=`.
    *
-   *  - **default** (`INCLUDES_FROM_SERVICE`): el cliente puede pedir lo que el
-   *    service ya declara precargar. La intención del autor está donde ya la
-   *    escribía, así que el caso normal no cuesta ni una línea.
-   *  - **whitelist explícita** (`['owner', 'owner.profile']`): para exponer
-   *    más de lo que se precarga por defecto.
+   * El reparto: `indexWith`/`showWith` dicen *qué carga el service* (y se
+   * aplican siempre, los pida el cliente o no); esto dice *qué deja pedir
+   * además*. Cuatro modos:
+   *
+   *  - **default** (`INCLUDES_FROM_SERVICE`): nada de más — el cliente solo
+   *    puede pedir lo que ESE método ya precarga. Granularidad por método sin
+   *    escribir una línea: lo que está solo en `showWith` no abre el listado.
+   *  - **por método** (`{ index: ['tags'], show: ['tags', 'audit'] }`): abre
+   *    el listado sin abrir el detalle, o al revés.
+   *  - **lista simple** (`['tags']`): lo mismo en los dos métodos.
    *  - **`ALLOW_ALL_INCLUDES`**: cualquier relación del modelo — el
    *    comportamiento implícito hasta 2.0.0. Solo para servicios internos:
    *    una relación no prevista viaja entera en la respuesta.
+   *
+   * Los tres primeros son aditivos sobre los defaults del método: no hace
+   * falta repetir en `allowedIncludes` lo que ya está en `indexWith`.
    */
   protected allowedIncludes: AllowedIncludes = INCLUDES_FROM_SERVICE
 
@@ -130,7 +141,7 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
     // Preloads se aplican solo cuando vamos a devolver registros reales.
     // En count=true los preloads tirarían errores sobre filas vacías.
     if (params.count !== true) {
-      applyPreloads(query, this.resolveIncludes(params.includes, this.indexWith))
+      applyPreloads(query, this.resolveIncludes(params.includes, this.indexWith, 'index'))
     }
     return this.paginate(query, params)
   }
@@ -138,7 +149,7 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
   async findOne(uuid: string, includes?: string[]): Promise<InstanceType<TModel> | null> {
     const pk = (this.model.primaryKey as string) || 'id'
     const query = this.model.query() as ModelQueryBuilderContract<TModel, InstanceType<TModel>>
-    applyPreloads(query, this.resolveIncludes(includes, this.showWith))
+    applyPreloads(query, this.resolveIncludes(includes, this.showWith, 'show'))
     const record = await query.where(pk, uuid).first()
     return (record as InstanceType<TModel> | null) ?? null
   }
@@ -358,24 +369,45 @@ export abstract class SearchableService<TModel extends typeof BaseModel> {
   }
 
   /**
-   * Resuelve los preloads efectivos. `requested` es lo que llega del cliente
-   * (`?with=`) y pasa por la whitelist; si no pide nada, se usan los del
-   * service tal cual (esos son decisión suya, no del cliente).
+   * Resuelve los preloads efectivos de un método. `requested` es lo que llega
+   * del cliente (`?with=`) y pasa por la whitelist; si no pide nada, se usan
+   * los del service tal cual (esos son decisión suya, no del cliente).
    */
-  protected resolveIncludes(requested: string[] | undefined, defaults: string[]): string[] {
+  protected resolveIncludes(
+    requested: string[] | undefined,
+    defaults: string[],
+    method: IncludesMethod
+  ): string[] {
     if (!requested) return defaults
-    return filterIncludes(requested, this.resolveAllowedIncludes())
+    return filterIncludes(requested, this.resolveAllowedIncludes(defaults, method))
   }
 
-  private _allowedIncludesCache?: string[]
-  protected resolveAllowedIncludes(): ResolvedIncludes {
+  /**
+   * Lo permitido en un método = lo que ese método ya precarga + lo que
+   * `allowedIncludes` abra para él.
+   *
+   * Es ADITIVO a propósito: una relación que se precarga por defecto viaja en
+   * la respuesta la pida el cliente o no, así que "prohibirla" no querría
+   * decir nada. Y es POR MÉTODO porque el perfil de exposición no es el mismo:
+   * traer las invitaciones de UNA organización es proporcionado; traer las de
+   * las 25 de una página, con los emails de todos los invitados, es otra cosa.
+   */
+  private _allowedIncludesCache: Partial<Record<IncludesMethod, string[]>> = {}
+  protected resolveAllowedIncludes(
+    defaults: string[],
+    method: IncludesMethod
+  ): ResolvedIncludes {
     if (this.allowedIncludes === ALLOW_ALL_INCLUDES) return ALLOW_ALL_INCLUDES
-    if (this.allowedIncludes === INCLUDES_FROM_SERVICE) {
-      return (this._allowedIncludesCache ??= [
-        ...new Set([...this.indexWith, ...this.showWith]),
-      ])
-    }
-    return this.allowedIncludes as string[]
+    if (this.allowedIncludes === INCLUDES_FROM_SERVICE) return defaults
+
+    const cached = this._allowedIncludesCache[method]
+    if (cached) return cached
+
+    const extra = Array.isArray(this.allowedIncludes)
+      ? this.allowedIncludes
+      : ((this.allowedIncludes as AllowedIncludesByMethod)[method] ?? [])
+
+    return (this._allowedIncludesCache[method] = [...new Set([...defaults, ...extra])])
   }
 }
 
