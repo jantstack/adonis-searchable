@@ -6,26 +6,51 @@ on:
   pull_request:
   workflow_dispatch:
 
+# Dos trabajos porque son dos preguntas distintas, y la matriz original las
+# confundía: corría la SUITE en Node 20/22/24, pero el ejecutor de tests
+# (@poppinss/ts-exec) declara `engines: node >=24`, así que en 20 y 22 moría
+# con ERR_UNKNOWN_FILE_EXTENSION antes del primer test. La matriz no probaba
+# el paquete: probaba el tooling, y siempre en rojo.
 jobs:
+  # ¿Funciona el paquete? Se ejecuta donde el tooling puede ejecutarse.
   test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.x
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      # La suite corre sobre SQLite en memoria: sin servicios, sin migraciones
+      # y sin depender del proyecto consumidor.
+      - run: npm test
+
+  # ¿Es cargable lo que se publica en todo el rango que declara `engines`?
+  # `tsc` compila en cualquier versión y `node --check` verifica que el
+  # JavaScript emitido parsea en esa versión — que es el riesgo real (un
+  # target demasiado moderno para el suelo declarado).
+  compat:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         node: ['20.x', '22.x', '24.x']
-
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
           cache: npm
-
       - run: npm ci
-
-      # La suite corre sobre SQLite en memoria: sin servicios, sin migraciones
-      # y sin depender del proyecto consumidor.
-      - run: npm run typecheck
-      - run: npm test
       - run: npm run build
+      - name: El build es cargable en Node ${{ matrix.node }}
+        run: |
+          count=0
+          while IFS= read -r file; do
+            node --check "$file"
+            count=$((count + 1))
+          done < <(find build -name '*.js')
+          echo "$count ficheros emitidos verificados"
+          test "$count" -gt 0
