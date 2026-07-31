@@ -7,7 +7,7 @@
   "author": "Jose Tenorio",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/JantStack/adonis-searchable.git"
+    "url": "git+https://github.com/jantstack/adonis-searchable.git"
   },
   "keywords": [
     "adonisjs",
@@ -79,9 +79,9 @@
     "luxon": "^3.7.2",
     "typescript": "~5.9.3"
   },
-  "homepage": "https://github.com/JantStack/adonis-searchable#readme",
+  "homepage": "https://github.com/jantstack/adonis-searchable#readme",
   "bugs": {
-    "url": "https://github.com/JantStack/adonis-searchable/issues"
+    "url": "https://github.com/jantstack/adonis-searchable/issues"
   },
   "publishConfig": {
     "access": "public"
